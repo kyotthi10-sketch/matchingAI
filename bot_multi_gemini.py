@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 
 # スクリプトのディレクトリを基準に.envを読み込む（最優先で実行）
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(_script_dir, "env.example"), override=True)
-load_dotenv(os.path.join(os.path.dirname(_script_dir), "env.example"), override=False)
+load_dotenv(os.path.join(_script_dir, ".env"), override=True)
+load_dotenv(os.path.join(os.path.dirname(_script_dir), ".env"), override=False)
 
 import discord
 from discord import app_commands
