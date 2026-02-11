@@ -38,6 +38,7 @@ from db_multi import (
     get_user_matches,
     update_match_status,
     count_total_users,
+    count_completed_users,
     get_category_stats,
 )
 from ai_matching_gemini import (
@@ -54,12 +55,15 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GUILD_ID = int(os.environ.get("GUILD_ID", "0"))
 AUTO_CLOSE_SECONDS = int(os.environ.get("AUTO_CLOSE_SECONDS", "300"))
 ADMIN_ROLE_ID = int(os.environ.get("ADMIN_ROLE_ID", "0"))
+BOTADMIN_ROLE_ID = int(os.environ.get("BOTADMIN_ROLE_ID", "0"))
+ADMIN_CHANNEL_ID = int(os.environ.get("ADMIN_CHANNEL_ID", "0"))
+WELCOME_CHANNEL_ID = int(os.environ.get("WELCOME_CHANNEL_ID", "0"))
 
 # =========================================================
 # Bot初期化
 # =========================================================
 intents = discord.Intents.default()
-intents.members = False
+intents.members = True  # on_member_join 用
 intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -70,6 +74,31 @@ matching_engine = AIMatchingEngine()
 # =========================================================
 # ユーティリティ
 # =========================================================
+def safe_channel_name(name: str) -> str:
+    """Discordチャンネル名は英小文字/数字/ハイフンが安全"""
+    name = name.lower()
+    name = re.sub(r"[^a-z0-9]", "-", name)
+    name = re.sub(r"-+", "-", name)
+    name = name.strip("-")
+    return name or "user"
+
+
+def is_user_room(channel: discord.abc.GuildChannel, user_id: int) -> bool:
+    """topic でユーザールームか判定 (topic: "user:{id} ...")"""
+    if not isinstance(channel, discord.TextChannel):
+        return False
+    return (channel.topic or "").startswith(f"user:{user_id}")
+
+
+def compatibility_percent(picks_a: dict, picks_b: dict, categories: List[str]) -> int:
+    """2ユーザーの回答一致率を％で返す"""
+    usable = [c for c in categories if c in picks_a and c in picks_b]
+    if not usable:
+        return 0
+    same = sum(1 for c in usable if picks_a[c] == picks_b[c])
+    return int(round(same / len(usable) * 100))
+
+
 def has_role_id(member: discord.Member, role_id: int) -> bool:
     if role_id <= 0:
         return False
@@ -136,6 +165,94 @@ class CategorySelectView(discord.ui.View):
             f"{meta['emoji']} **{meta['name']}** を選択しました！\n診断を開始します...",
             ephemeral=True
         )
+
+
+# =========================================================
+# 専用ルーム作成・パネル
+# =========================================================
+async def create_or_open_room(interaction: discord.Interaction):
+    """専用診断ルームを作成し、カテゴリー選択から診断を開始"""
+    guild = interaction.guild
+    if guild is None:
+        return
+    member = interaction.user
+    if not isinstance(member, discord.Member):
+        return
+
+    discord_id = member.id
+    safe_name = safe_channel_name(member.display_name)
+    channel_name = f"match-{safe_name}-{discord_id % 10000}"
+
+    # 既存ルーム再利用
+    for ch in guild.text_channels:
+        if is_user_room(ch, discord_id):
+            await interaction.response.send_message(f"既にあります：{ch.mention}", ephemeral=True)
+            return
+
+    if guild.me is None:
+        await interaction.response.send_message("Bot情報の取得に失敗しました。", ephemeral=True)
+        return
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        member: discord.PermissionOverwrite(view_channel=True, send_messages=False),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+    }
+
+    ch = await guild.create_text_channel(
+        channel_name,
+        topic=f"user:{discord_id} name:{member.display_name}",
+        overwrites=overwrites
+    )
+
+    await interaction.response.send_message(f"専用ルームを作成しました：{ch.mention}", ephemeral=True)
+    await ch.send("📝 このルームは診断専用です。カテゴリーを選んで開始してください。")
+
+    user_id = await asyncio.to_thread(
+        get_or_create_user, str(discord_id), member.name
+    )
+
+    embed = discord.Embed(
+        title="🎯 AIマッチングサービス",
+        description="どのカテゴリーで診断を始めますか？",
+        color=discord.Color.blue()
+    )
+    for cat_id, meta in CATEGORY_META.items():
+        embed.add_field(name=f"{meta['emoji']} {meta['name']}", value=meta['description'], inline=False)
+
+    view = CategorySelectView(discord_id)
+    await ch.send(embed=embed, view=view)
+    await view.wait()
+
+    if view.category:
+        questions = CATEGORY_QUESTIONS[view.category]
+        order = await asyncio.to_thread(
+            get_or_create_order, user_id, view.category, [q["id"] for q in questions]
+        )
+        await update_question_message(ch, user_id, view.category, 0, order, questions)
+
+
+class StartRoomView(discord.ui.View):
+    """診断開始ボタン（永続用）"""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="診断を始める", style=discord.ButtonStyle.success, custom_id="start_room_button")
+    async def start_room_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("サーバー内で押してください。", ephemeral=True)
+            return
+        await create_or_open_room(interaction)
+
+
+async def post_panel(channel: discord.TextChannel):
+    """診断開始ボタンを設置"""
+    embed = discord.Embed(
+        title="🎯 AIマッチング診断スタート",
+        description="下のボタンを押すと、あなた専用の診断ルームが作成されます。",
+    )
+    await channel.send(embed=embed, view=StartRoomView())
 
 
 # =========================================================
@@ -338,12 +455,104 @@ async def update_question_message(
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     init_db()
-    
+    try:
+        bot.add_view(StartRoomView())
+    except Exception as e:
+        print("add_view failed:", repr(e))
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """新規メンバー参加時にウェルカムチャンネルへ診断開始ボタンを投稿"""
+    if member.bot:
+        return
+    if WELCOME_CHANNEL_ID <= 0:
+        return
+    channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+    if channel is None or not isinstance(channel, discord.TextChannel):
+        return
+    embed = discord.Embed(
+        title="🎯 AIマッチング診断スタート",
+        description=f"👋 {member.mention} さん、ようこそ！下のボタンを押すと、あなた専用の診断ルームが作成されます。",
+    )
+    await channel.send(embed=embed, view=StartRoomView())
+
+
+@bot.tree.command(name="room", description="専用診断ルームを作成し自動で開始")
+async def room(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("サーバー内で実行してください。", ephemeral=True)
+        return
+    await create_or_open_room(interaction)
+
+
+@bot.tree.command(name="panel", description="診断開始ボタンを設置（運営専用）")
+async def panel(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("サーバー内で実行してください。", ephemeral=True)
+        return
+    if not has_role_id(interaction.user, BOTADMIN_ROLE_ID) and BOTADMIN_ROLE_ID > 0:
+        await interaction.response.send_message("権限がありません。", ephemeral=True)
+        return
+    await post_panel(interaction.channel)
+    await interaction.response.send_message("✅ 設置しました。", ephemeral=True)
+
+
+@bot.tree.command(name="ping", description="動作確認（運営専用）")
+async def ping(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("サーバー内で実行してください。", ephemeral=True)
+        return
+    if not has_role_id(interaction.user, ADMIN_ROLE_ID) and ADMIN_ROLE_ID > 0:
+        await interaction.response.send_message("このコマンドは運営専用です。", ephemeral=True)
+        return
+    await interaction.response.send_message("🏓 pong!", ephemeral=True)
+
+
+@bot.tree.command(name="logs", description="管理者用：利用状況を表示（Embed）")
+async def logs(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("サーバー内で実行してください。", ephemeral=True)
+        return
+    if ADMIN_CHANNEL_ID > 0 and interaction.channel_id != ADMIN_CHANNEL_ID:
+        await interaction.response.send_message("このコマンドは管理者チャンネルでのみ使用できます。", ephemeral=True)
+        return
+    if not has_role_id(interaction.user, ADMIN_ROLE_ID) and ADMIN_ROLE_ID > 0:
+        await interaction.response.send_message("権限がありません。", ephemeral=True)
+        return
+
+    total = await asyncio.to_thread(count_total_users)
+    cat_stats = await asyncio.to_thread(get_category_stats)
+    completed_total = 0
+    for cat, questions in CATEGORY_QUESTIONS.items():
+        n = await asyncio.to_thread(count_completed_users, cat, len(questions))
+        completed_total += n
+    rooms = [ch for ch in interaction.guild.text_channels if ch.name.startswith("match-")]
+    total_questions = sum(len(q) for q in CATEGORY_QUESTIONS.values())
+
+    embed = discord.Embed(
+        title="📊 診断Bot 利用状況",
+        description="管理者向けの集計情報です。",
+    )
+    embed.add_field(name="総ユーザー数", value=str(total), inline=True)
+    embed.add_field(name="診断完了（全カテゴリー合計）", value=str(completed_total), inline=True)
+    embed.add_field(name="専用ルーム数", value=str(len(rooms)), inline=True)
+    embed.add_field(name="総質問数", value=str(total_questions), inline=True)
+    for cat, meta in CATEGORY_META.items():
+        s = cat_stats.get(cat, {"users": 0, "answers": 0})
+        embed.add_field(
+            name=f"{meta['emoji']} {meta['name']}",
+            value=f"ユーザー: {s['users']}\n回答数: {s['answers']}",
+            inline=True
+        )
+    embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="start", description="マッチングサービスを開始")
