@@ -292,7 +292,7 @@ async def handle_answer(
 ):
     """回答処理"""
     # 権限チェック
-    if interaction.user.id != user_id:
+    if interaction.discord_id != discord_id:
         await interaction.response.send_message("これはあなたの診断ではありません。", ephemeral=True)
         return
     
