@@ -166,7 +166,7 @@ QUESTIONS_GAMING = [
 
     # money（お金・課金感覚）
     {"id": 21, "category": "money", "text": "課金（スキン/バトルパス等）に抵抗は少ない。", "choices": CHOICES_5},
-    {"id": 22, "category": "money", "text": "ゲームにお金をかけるのは"体験への投資"だと思う。", "choices": CHOICES_5},
+    {"id": 22, "category": "money", "text": "ゲームにお金をかけるのは「体験への投資」だと思う。", "choices": CHOICES_5},
     {"id": 23, "category": "money", "text": "趣味の出費は計画的に管理している。", "choices": CHOICES_5},
     {"id": 24, "category": "money", "text": "ガチャや限定品に熱くなりやすい。", "choices": CHOICES_5},
     {"id": 25, "category": "money", "text": "コスパ（費用対効果）を重視する。", "choices": CHOICES_5},
