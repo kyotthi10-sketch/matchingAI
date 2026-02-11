@@ -19,7 +19,7 @@ from questions_multi_category import (
     CATEGORY_QUESTIONS,
     CHOICES_5
 )
-from db_milti import (
+from db_multi import (
     init_db,
     get_or_create_user,
     get_user_by_discord_id,
