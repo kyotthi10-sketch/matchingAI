@@ -20,7 +20,7 @@ from questions_multi_category import (
     CHOICES_5
 )
 from db_multi import (
-    init_db,
+    init_db_multi,
     get_or_create_user,
     get_user_by_discord_id,
     get_profile,
@@ -337,7 +337,7 @@ async def update_question_message(
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
-    await init_db()
+    await init_db_multi()
     
     try:
         synced = await bot.tree.sync()
