@@ -12,11 +12,11 @@ from dotenv import load_dotenv
 
 # スクリプトのディレクトリを基準に.envを読み込む
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-_env_path = os.path.join(_script_dir, "env.example")
+_env_path = os.path.join(_script_dir, ".env")
 load_dotenv(_env_path, override=True)
 
 # 親ディレクトリの.envもフォールバック
-_parent_env = os.path.join(os.path.dirname(_script_dir), "env.example")
+_parent_env = os.path.join(os.path.dirname(_script_dir), ".env")
 if os.path.exists(_parent_env):
     load_dotenv(_parent_env, override=False)
 
@@ -37,7 +37,7 @@ def _get_conn() -> libsql.Connection:
             if _conn is None:
                 if not LIBSQL_URL or not LIBSQL_AUTH_TOKEN:
                     raise RuntimeError(
-                        "LIBSQL_URL と LIBSQL_AUTH_TOKEN を env.example に設定してください。"
+                        "LIBSQL_URL と LIBSQL_AUTH_TOKEN を .env に設定してください。"
                     )
                 _conn = libsql.connect(
                     DB_PATH,
