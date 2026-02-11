@@ -59,9 +59,10 @@ ADMIN_ROLE_ID = int(os.environ.get("ADMIN_ROLE_ID", "0"))
 # Bot初期化
 # =========================================================
 intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
+intents.members = False
+intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
+
 
 # AIマッチングエンジン
 matching_engine = AIMatchingEngine()
