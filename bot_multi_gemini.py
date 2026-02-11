@@ -63,7 +63,7 @@ WELCOME_CHANNEL_ID = int(os.environ.get("WELCOME_CHANNEL_ID", "0"))
 # Bot初期化
 # =========================================================
 intents = discord.Intents.default()
-intents.members = True  # on_member_join 用
+intents.members = False  # on_member_join 用
 intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
 
