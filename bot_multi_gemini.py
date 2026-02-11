@@ -63,7 +63,7 @@ WELCOME_CHANNEL_ID = int(os.environ.get("WELCOME_CHANNEL_ID", "0"))
 # Bot初期化
 # =========================================================
 intents = discord.Intents.default()
-intents.members = False  # on_member_join 用
+intents.members = False # on_member_join 用
 intents.message_content = False
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -553,6 +553,35 @@ async def logs(interaction: discord.Interaction):
     embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="sync_members", description="サーバーメンバーをDBに追加（管理者専用）")
+async def sync_members(interaction: discord.Interaction):
+    """サーバー参加メンバーをすべてDBに登録"""
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("サーバー内で実行してください。", ephemeral=True)
+        return
+    if not has_role_id(interaction.user, ADMIN_ROLE_ID) and ADMIN_ROLE_ID > 0:
+        await interaction.response.send_message("権限がありません。", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    count = 0
+    for member in interaction.guild.members:
+        if member.bot:
+            continue
+        await asyncio.to_thread(
+            get_or_create_user,
+            str(member.id),
+            member.display_name or member.name
+        )
+        count += 1
+
+    await interaction.followup.send(
+        f"✅ サーバーメンバー **{count}** 人をDBに登録しました。",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="start", description="マッチングサービスを開始")
