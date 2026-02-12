@@ -118,6 +118,25 @@ def progress_bar(current: int, total: int, width: int = 12) -> str:
     return "■" * filled + "□" * (width - filled)
 
 
+def format_key_traits(traits) -> str:
+    """key_traits を表示用テキストに変換（新旧フォーマット対応）"""
+    if not traits:
+        return ""
+    lines = []
+    for t in traits[:5]:
+        if isinstance(t, dict) and "trait" in t:
+            comment = t.get("comment", "")
+            if comment:
+                lines.append(f"• **{t['trait']}**: {comment}")
+            else:
+                lines.append(f"• {t['trait']}")
+        elif isinstance(t, str):
+            lines.append(f"• {t}")
+        else:
+            lines.append(f"• {t}")
+    return "\n".join(lines)
+
+
 def q_by_id(questions: List[dict], qid: int) -> dict:
     for q in questions:
         if q["id"] == qid:
@@ -382,12 +401,12 @@ async def handle_completion(
         value=profile_analysis.get("personality_summary", "分析中..."),
         inline=False
     )
-    
-    traits = profile_analysis.get("key_traits", [])
-    if traits:
+
+    traits_text = format_key_traits(profile_analysis.get("key_traits", []))
+    if traits_text:
         embed.add_field(
             name="✨ 主な特徴",
-            value="• " + "\n• ".join(traits[:5]),
+            value=traits_text,
             inline=False
         )
     
@@ -736,11 +755,13 @@ async def profile(interaction: discord.Interaction, category: Optional[str] = No
         
         traits = profile_data.get('personality_traits', {})
         if isinstance(traits, dict) and 'key_traits' in traits:
-            embed.add_field(
-                name="✨ 特徴",
-                value="• " + "\n• ".join(traits['key_traits'][:5]),
-                inline=False
-            )
+            traits_text = format_key_traits(traits['key_traits'])
+            if traits_text:
+                embed.add_field(
+                    name="✨ 特徴",
+                    value=traits_text,
+                    inline=False
+                )
         
         embeds.append(embed)
     
