@@ -391,9 +391,11 @@ async def handle_completion(
             inline=False
         )
     
+    meta_cat = CATEGORY_META.get(category, {})
+    cat_name = meta_cat.get("name", category)
     embed.add_field(
         name="🎯 次のステップ",
-        value=f"`/match {category}` でマッチング相手を探す\n`/profile {category}` でプロフィールを確認",
+        value=f"`/match` → カテゴリー「{cat_name}」を選択してマッチング相手を探す\n`/profile` → プロフィールを確認",
         inline=False
     )
     
@@ -469,7 +471,13 @@ async def on_ready():
         print("add_view failed:", repr(e))
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s)")
+        print(f"Synced {len(synced)} command(s) globally")
+        # GUILD_ID指定時はサーバーへ即時反映（グローバルは最大1時間かかる）
+        if GUILD_ID > 0:
+            guild_obj = discord.Object(id=GUILD_ID)
+            bot.tree.copy_global_to(guild=guild_obj)
+            g_synced = await bot.tree.sync(guild=guild_obj)
+            print(f"Synced {len(g_synced)} command(s) to guild {GUILD_ID}")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
@@ -520,6 +528,25 @@ async def ping(interaction: discord.Interaction):
         await interaction.response.send_message("このコマンドは運営専用です。", ephemeral=True)
         return
     await interaction.response.send_message("🏓 pong!", ephemeral=True)
+
+
+@bot.tree.command(name="sync", description="スラッシュコマンドを同期（運営専用）")
+async def sync_cmd(interaction: discord.Interaction):
+    """`/match` `/profile` などのコマンドをDiscordに反映"""
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("サーバー内で実行してください。", ephemeral=True)
+        return
+    if not has_role_id(interaction.user, ADMIN_ROLE_ID) and ADMIN_ROLE_ID > 0:
+        await interaction.response.send_message("権限がありません。", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    bot.tree.copy_global_to(guild=interaction.guild)
+    synced = await bot.tree.sync(guild=interaction.guild)
+    await interaction.followup.send(
+        f"✅ コマンドを同期しました（{len(synced)}件）。`/match` `/profile` などが表示されるか確認してください。",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="logs", description="管理者用：利用状況を表示（Embed）")
