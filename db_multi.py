@@ -12,15 +12,16 @@ from dotenv import load_dotenv
 
 # スクリプトのディレクトリを基準に.envを読み込む
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-_env_path = os.path.join(_script_dir, ".env")
+_env_path = os.path.join(_script_dir, "env.example")
 load_dotenv(_env_path, override=True)
 
 # 親ディレクトリの.envもフォールバック
-_parent_env = os.path.join(os.path.dirname(_script_dir), ".env")
+_parent_env = os.path.join(os.path.dirname(_script_dir), "env.example")
 if os.path.exists(_parent_env):
     load_dotenv(_parent_env, override=False)
 
-DB_PATH = os.path.join(_script_dir, "app_multi.db")
+_raw_db = os.environ.get("DB_PATH", "app_multi.db")
+DB_PATH = _raw_db if os.path.isabs(_raw_db) else os.path.join(_script_dir, os.path.basename(_raw_db))
 LIBSQL_URL = os.environ.get("LIBSQL_URL", "").strip()
 LIBSQL_AUTH_TOKEN = os.environ.get("LIBSQL_AUTH_TOKEN", "").strip()
 
@@ -37,16 +38,36 @@ def _get_conn() -> libsql.Connection:
             if _conn is None:
                 if not LIBSQL_URL or not LIBSQL_AUTH_TOKEN:
                     raise RuntimeError(
-                        "LIBSQL_URL と LIBSQL_AUTH_TOKEN を .env に設定してください。"
+                        "LIBSQL_URL と LIBSQL_AUTH_TOKEN を env.example に設定してください。"
                     )
+                # WAL関連ファイルが残っているとエラーになる環境があるため削除を試行
+                for suf in ("-wal", "-shm"):
+                    p = DB_PATH + suf
+                    if os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
                 _conn = libsql.connect(
                     DB_PATH,
                     sync_url=LIBSQL_URL,
                     auth_token=LIBSQL_AUTH_TOKEN,
                 )
+                # ★WALが相性悪い環境向け：最初にjournal_modeを変更
                 _conn.execute("PRAGMA journal_mode=DELETE;")
                 _conn.execute("PRAGMA synchronous=NORMAL;")
+                _conn.commit()  # PRAGMAを反映
     return _conn
+
+
+def sync_db() -> None:
+    """ローカルDBの変更をTursoへ同期（アップロード）"""
+    conn = _get_conn()
+    if hasattr(conn, "sync"):
+        try:
+            conn.sync()
+        except Exception:
+            pass  # 同期失敗時は無視（オフライン等）
 
 
 def init_db() -> None:
@@ -155,6 +176,7 @@ def init_db() -> None:
         """)
 
         conn.commit()
+        sync_db()
 
 
 # =========================================================
@@ -175,6 +197,7 @@ def get_or_create_user(discord_id: str, username: str) -> int:
         )
         conn.commit()
         row = conn.execute("SELECT last_insert_rowid()").fetchone()
+        sync_db()
         return int(row[0])
 
 
@@ -213,6 +236,7 @@ def create_or_update_profile(
         """, (user_id, category, bio, interests_json, traits_json))
 
         conn.commit()
+        sync_db()
 
 
 def get_profile(user_id: int, category: str) -> Optional[Dict]:
@@ -263,6 +287,7 @@ def get_state(user_id: int, category: str) -> int:
                 (user_id, category)
             )
             conn.commit()
+            sync_db()
             return 0
         return int(row[0])
 
@@ -276,6 +301,7 @@ def set_state(user_id: int, category: str, idx: int) -> None:
         ON CONFLICT(user_id, category) DO UPDATE SET idx=excluded.idx
         """, (user_id, category, idx))
         conn.commit()
+        sync_db()
 
 
 # =========================================================
@@ -292,6 +318,7 @@ def save_answer(user_id: int, category: str, question_id: int, answer: str) -> N
         DO UPDATE SET answer=excluded.answer, answered_at=CURRENT_TIMESTAMP
         """, (user_id, category, question_id, answer))
         conn.commit()
+        sync_db()
 
 
 def load_answers(user_id: int, category: str) -> List[Tuple[int, str]]:
@@ -406,6 +433,7 @@ def create_match(
         VALUES(?, ?, ?, ?, 'pending')
         """, (user1_id, user2_id, category, match_score))
         conn.commit()
+        sync_db()
         row = conn.execute("SELECT last_insert_rowid()").fetchone()
         return int(row[0])
 
