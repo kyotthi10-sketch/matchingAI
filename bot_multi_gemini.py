@@ -229,7 +229,7 @@ async def create_or_open_room(interaction: discord.Interaction):
         order = await asyncio.to_thread(
             get_or_create_order, user_id, view.category, [q["id"] for q in questions]
         )
-        await update_question_message(ch, user_id, view.category, 0, order, questions)
+        await update_question_message(ch, discord_id, user_id, view.category, 0, order, questions)
 
 
 class StartRoomView(discord.ui.View):
@@ -260,13 +260,14 @@ async def post_panel(channel: discord.TextChannel):
 # =========================================================
 class AnswerButtonsView(discord.ui.View):
     """回答ボタンUI（A〜E）"""
-    
-    def __init__(self, user_id: int, category: str, idx: int):
+
+    def __init__(self, discord_id: int, user_id: int, category: str, idx: int):
         super().__init__(timeout=None)
-        self.user_id = user_id
+        self.discord_id = discord_id  # 権限チェック用（DiscordユーザーID）
+        self.user_id = user_id       # DB用（内部ID）
         self.category = category
         self.idx = idx
-        
+
         # A〜Eボタンを追加
         for key, label in CHOICES_5:
             button = discord.ui.Button(
@@ -276,27 +277,30 @@ class AnswerButtonsView(discord.ui.View):
             )
             button.callback = self.make_answer_callback(key)
             self.add_item(button)
-    
+
     def make_answer_callback(self, key: str):
         async def callback(interaction: discord.Interaction):
-            await handle_answer(interaction, self.user_id, self.category, self.idx, key)
+            await handle_answer(
+                interaction, self.discord_id, self.user_id, self.category, self.idx, key
+            )
         return callback
 
 
 async def handle_answer(
     interaction: discord.Interaction,
+    discord_id: int,
     user_id: int,
     category: str,
     idx: int,
     key: str
 ):
-    """回答処理"""
+    """回答処理（discord_id=権限チェック用, user_id=DB用）"""
     # ★3秒制限回避：最初に必ずdefer
     if not interaction.response.is_done():
         await interaction.response.defer(ephemeral=True)
 
-    # 権限チェック
-    if interaction.user.id != user_id:
+    # 権限チェック（Discord IDで比較）
+    if interaction.user.id != discord_id:
         await interaction.followup.send("これはあなたの診断ではありません。", ephemeral=True)
         return
 
@@ -327,7 +331,9 @@ async def handle_answer(
             await handle_completion(interaction, user_id, category, questions)
         else:
             # 次の質問へ
-            await update_question_message(interaction.channel, user_id, category, next_idx, order, questions)
+            await update_question_message(
+                interaction.channel, discord_id, user_id, category, next_idx, order, questions
+            )
     
     except Exception as e:
         await interaction.followup.send(f"⚠️ エラー：{type(e).__name__}", ephemeral=True)
@@ -404,13 +410,14 @@ async def handle_completion(
 
 async def update_question_message(
     channel: discord.TextChannel,
+    discord_id: int,
     user_id: int,
     category: str,
     idx: int,
     order: List[int],
     questions: List[dict]
 ):
-    """質問メッセージを更新"""
+    """質問メッセージを更新（discord_id=権限チェック用, user_id=DB用）"""
     q = q_by_id(questions, order[idx])
     meta = CATEGORY_META[category]
     
@@ -433,7 +440,7 @@ async def update_question_message(
     
     embed.set_footer(text="★が多いほど強い傾向です")
     
-    view = AnswerButtonsView(user_id, category, idx)
+    view = AnswerButtonsView(discord_id, user_id, category, idx)
     
     mid = await asyncio.to_thread(get_message_id, user_id, category)
     if mid:
@@ -631,6 +638,7 @@ async def start(interaction: discord.Interaction):
         
         await update_question_message(
             interaction.channel,
+            interaction.user.id,
             user_id,
             view.category,
             0,
