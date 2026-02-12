@@ -291,14 +291,15 @@ async def handle_answer(
     key: str
 ):
     """回答処理"""
-    # 権限チェック
-    if interaction.discord_id != discord_id:
-        await interaction.response.send_message("これはあなたの診断ではありません。", ephemeral=True)
-        return
-    
+    # ★3秒制限回避：最初に必ずdefer
     if not interaction.response.is_done():
         await interaction.response.defer(ephemeral=True)
-    
+
+    # 権限チェック
+    if interaction.user.id != user_id:
+        await interaction.followup.send("これはあなたの診断ではありません。", ephemeral=True)
+        return
+
     try:
         # 質問取得
         questions = CATEGORY_QUESTIONS[category]
