@@ -55,8 +55,14 @@ class AIMatchingEngine:
 
 以下のJSON形式で分析結果を返してください：
 {{
-  "personality_summary": "性格の要約（3-4文）",
-  "key_traits": ["特徴1", "特徴2", "特徴3", "特徴4", "特徴5"],
+  "personality_summary": "性格の要約。回答を踏まえた具体的な分析を3-5文で記述。",
+  "key_traits": [
+    {{"trait": "特徴1", "comment": "ユーザー向けのコメント（1-2文）"}},
+    {{"trait": "特徴2", "comment": "コメント"}},
+    {{"trait": "特徴3", "comment": "コメント"}},
+    {{"trait": "特徴4", "comment": "コメント"}},
+    {{"trait": "特徴5", "comment": "コメント"}}
+  ],
   "communication_style": "コミュニケーションスタイルの説明",
   "preferences": {{
     "ideal_match": "理想的な相手の特徴",
@@ -118,9 +124,12 @@ JSONのみを返し、他の説明は不要です。"""
         answer_counts = Counter([ans for _, ans in answers])
         avg_score = sum(STAR_MAP.get(ans, 3) for _, ans in answers) / max(len(answers), 1)
         
+        traits = [
+            {"trait": ans, "comment": f"この傾向が見られます"} for ans in list(answer_counts.keys())[:5]
+        ]
         return {
-            "personality_summary": f"平均スコア: {avg_score:.1f}",
-            "key_traits": list(answer_counts.keys())[:5],
+            "personality_summary": f"平均スコア: {avg_score:.1f}。回答傾向に基づく基本分析です。",
+            "key_traits": traits if traits else [{"trait": "分析中", "comment": "AI利用時に詳細表示"}],
             "communication_style": "標準",
             "preferences": {
                 "ideal_match": "類似した価値観を持つ相手",
