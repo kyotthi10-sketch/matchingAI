@@ -30,6 +30,34 @@ _conn: Optional[libsql.Connection] = None
 _lock = threading.Lock()
 
 
+def _migrate_user_msg_message_id_to_text(conn: "libsql.Connection") -> None:
+    """既存の user_msg の message_id を INTEGER→TEXT に移行（Turso ダッシュボードの JS オーバーフロー回避）"""
+    try:
+        info = conn.execute("PRAGMA table_info(user_msg)").fetchall()
+        if not info:
+            return
+        # [(cid, name, type, notnull, dflt_value, pk), ...]
+        msg_id_col = next((r for r in info if r[1] == "message_id"), None)
+        if not msg_id_col or msg_id_col[2].upper() == "TEXT":
+            return
+        conn.execute("ALTER TABLE user_msg RENAME TO user_msg_old")
+        conn.execute("""
+        CREATE TABLE user_msg (
+            user_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            PRIMARY KEY (user_id, category)
+        )
+        """)
+        conn.execute(
+            "INSERT INTO user_msg SELECT user_id, category, CAST(message_id AS TEXT) FROM user_msg_old"
+        )
+        conn.execute("DROP TABLE user_msg_old")
+        conn.commit()
+    except Exception:
+        pass
+
+
 def _get_conn() -> libsql.Connection:
     """Turso接続を取得（シングルトン）"""
     global _conn
@@ -166,16 +194,18 @@ def init_db() -> None:
         """)
 
         # メッセージID管理（カテゴリー別）
+        # message_id は TEXT（Discord ID が JS の safe integer を超えるため Turso ダッシュボードでエラーになる）
         conn.execute("""
         CREATE TABLE IF NOT EXISTS user_msg (
             user_id INTEGER NOT NULL,
             category TEXT NOT NULL,
-            message_id INTEGER NOT NULL,
+            message_id TEXT NOT NULL,
             PRIMARY KEY (user_id, category)
         )
         """)
 
         conn.commit()
+        _migrate_user_msg_message_id_to_text(conn)
         sync_db()
 
 
@@ -391,18 +421,24 @@ def get_message_id(user_id: int, category: str) -> Optional[int]:
             "SELECT message_id FROM user_msg WHERE user_id=? AND category=?",
             (user_id, category)
         ).fetchone()
-        return int(row[0]) if row else None
+        if not row:
+            return None
+        try:
+            return int(row[0])
+        except (TypeError, ValueError):
+            return None
 
 
 def set_message_id(user_id: int, category: str, message_id: int) -> None:
-    """メッセージIDを保存"""
+    """メッセージIDを保存（TEXT で保存して Turso ダッシュボードの JS オーバーフローを防ぐ）"""
     conn = _get_conn()
     with _lock:
         conn.execute("""
         INSERT INTO user_msg(user_id, category, message_id) VALUES(?, ?, ?)
         ON CONFLICT(user_id, category) DO UPDATE SET message_id=excluded.message_id
-        """, (user_id, category, message_id))
+        """, (user_id, category, str(message_id)))
         conn.commit()
+        sync_db()
 
 
 def reset_message_id(user_id: int, category: str) -> None:
