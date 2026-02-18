@@ -52,7 +52,7 @@ from ai_matching_gemini import (
 # =========================================================
 TOKEN = os.environ["DISCORD_TOKEN"]
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GUILD_ID = int(os.environ.get("GUILD_ID", "0"))
+GUILD_ID = int(os.environ.get("GUILD_ID"))
 AUTO_CLOSE_SECONDS = int(os.environ.get("AUTO_CLOSE_SECONDS", "300"))
 ADMIN_ROLE_ID = int(os.environ.get("ADMIN_ROLE_ID", "0"))
 BOTADMIN_ROLE_ID = int(os.environ.get("BOTADMIN_ROLE_ID", "0"))
